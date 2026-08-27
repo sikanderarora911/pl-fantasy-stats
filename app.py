@@ -12,8 +12,11 @@ import pandas as pd
 import streamlit as st
 
 from src.fixtures import build_ticker, color_for
-from src.fpl_client import cache_mtime, fetch_bootstrap, fetch_fixtures, load_config
+from src.fpl_client import (
+    cache_mtime, fetch_bootstrap, fetch_entry, fetch_fixtures, fetch_picks, load_config,
+)
 from src.insights import build_recommendations, top_captains, top_differentials
+from src.myteam import build_squad, suggest_transfers
 from src.news_feed import attach_rumours, fetch_feed_items
 from src.transform import build_players_df
 
@@ -51,10 +54,13 @@ def load_data(force_refresh: bool = False):
     # Gameweek context.
     current = next((e for e in bootstrap["events"] if e.get("is_current")), None)
     upcoming = next((e for e in bootstrap["events"] if e.get("is_next")), None)
+    # Latest gameweek whose squads are viewable (finished or in progress).
+    played = [e["id"] for e in bootstrap["events"] if e.get("finished") or e.get("is_current")]
     meta = {
         "gameweek": current["id"] if current else (upcoming["id"] if upcoming else None),
         "gameweek_kind": "current" if current else ("upcoming" if upcoming else None),
         "next_gameweek": upcoming["id"] if upcoming else (current["id"] + 1 if current else 1),
+        "picks_gw": max(played) if played else 1,
         "total_players": bootstrap.get("total_players"),
     }
     return df, meta, items, fixtures, bootstrap["teams"]
@@ -88,42 +94,41 @@ with right:
         st.rerun()
     st.caption(f"Data refreshed: {format_refreshed()}")
 
-# --- Sidebar filters (player picker) ----------------------------------------
-st.sidebar.header("Player filters")
-st.sidebar.caption("Apply to the Player Picker tab.")
-
-positions = [p for p in POSITION_ORDER if p in df["position"].unique()]
-sel_positions = st.sidebar.multiselect("Position", positions, default=positions)
-
-teams = sorted(df["team"].unique())
-sel_teams = st.sidebar.multiselect("Team", teams, default=[])  # empty = all
-
-price_min, price_max = float(df["price"].min()), float(df["price"].max())
-sel_price = st.sidebar.slider(
-    "Price (£m)", min_value=round(price_min, 1), max_value=round(price_max, 1),
-    value=(round(price_min, 1), round(price_max, 1)), step=0.1,
-)
-
-max_minutes = int(df["minutes"].max()) if len(df) else 0
-min_minutes = st.sidebar.slider("Minimum minutes played", 0, max_minutes, 0, step=10)
-
-available_only = st.sidebar.toggle("Available players only", value=False)
-flagged_only = st.sidebar.toggle("Flagged (injury/rotation news) only", value=False)
-rumours_only = st.sidebar.toggle("Has press rumours only", value=False)
-name_query = st.sidebar.text_input("Search player name")
-
-st.sidebar.divider()
-sort_label = st.sidebar.selectbox("Sort by", list(SORT_OPTIONS.keys()), index=0)
-sort_desc = st.sidebar.radio("Order", ["Descending", "Ascending"], index=0) == "Descending"
-
-tab_picker, tab_fixtures, tab_picks = st.tabs(
-    ["🎯 Player Picker", "📅 Fixture Difficulty", "⭐ Captains & Differentials"]
+tab_picker, tab_fixtures, tab_picks, tab_myteam = st.tabs(
+    ["🎯 Player Picker", "📅 Fixture Difficulty", "⭐ Captains & Differentials", "🔁 My Team"]
 )
 
 # ============================================================================
 # TAB 1 — Player Picker
 # ============================================================================
 with tab_picker:
+    # Primary filters, inline on the page.
+    f1, f2, f3 = st.columns([1, 1, 1])
+    positions = [p for p in POSITION_ORDER if p in df["position"].unique()]
+    sel_positions = f1.multiselect("Position", positions, default=positions,
+                                   help="e.g. show only DEF")
+    sel_teams = f2.multiselect("Team", sorted(df["team"].unique()), default=[],
+                               help="Empty = all teams. e.g. pick AVL for Villa players")
+    name_query = f3.text_input("Search player name")
+
+    # Secondary filters + sorting, tucked away to keep the page clean.
+    with st.expander("More filters & sorting"):
+        e1, e2, e3 = st.columns([2, 1, 2])
+        price_min, price_max = float(df["price"].min()), float(df["price"].max())
+        sel_price = e1.slider(
+            "Price (£m)", min_value=round(price_min, 1), max_value=round(price_max, 1),
+            value=(round(price_min, 1), round(price_max, 1)), step=0.1,
+        )
+        max_minutes = int(df["minutes"].max()) if len(df) else 0
+        min_minutes = e2.slider("Min. minutes", 0, max_minutes, 0, step=10)
+        sort_label = e3.selectbox("Sort by", list(SORT_OPTIONS.keys()), index=0)
+        sort_desc = e3.radio("Order", ["Descending", "Ascending"], index=0,
+                             horizontal=True) == "Descending"
+        t1, t2, t3 = st.columns(3)
+        available_only = t1.toggle("Available only", value=False)
+        flagged_only = t2.toggle("Flagged (injury/rotation) only", value=False)
+        rumours_only = t3.toggle("Has press rumours only", value=False)
+
     mask = (
         df["position"].isin(sel_positions)
         & df["price"].between(sel_price[0], sel_price[1])
@@ -210,7 +215,7 @@ with tab_picker:
             )
 
     # Main player table.
-    table_columns = [c for c in view.columns if c != "rumour_count"]
+    table_columns = [c for c in view.columns if c not in ("rumour_count", "id")]
     st.dataframe(
         view, use_container_width=True, hide_index=True, column_order=table_columns,
         column_config={
@@ -253,11 +258,13 @@ with tab_fixtures:
     )
 
     c1, c2 = st.columns([0.5, 0.5])
-    horizon = c1.slider("Gameweeks ahead", min_value=3, max_value=8, value=5)
+    horizon = c1.slider("Gameweeks ahead", min_value=1, max_value=19, value=6)
     easiest_first = c2.radio("Sort", ["Easiest first", "Hardest first"], index=0,
                              horizontal=True) == "Easiest first"
 
     start_gw = meta["next_gameweek"]
+    # Don't request gameweeks past the end of the 38-GW season.
+    horizon = max(1, min(horizon, 38 - start_gw + 1))
     display_df, difficulty_df, avg = build_ticker(fixtures, teams_raw, start_gw, horizon)
 
     order = avg.sort_values(ascending=easiest_first).index
@@ -300,19 +307,27 @@ with tab_picks:
     )
 
     ctrl = st.columns(4)
-    horizon_p = ctrl[0].slider("Fixture horizon (GWs)", 1, 6, 3, key="picks_horizon")
+    horizon_p = ctrl[0].slider("Fixture horizon (GWs)", 1, 19, 3, key="picks_horizon")
     min_mins = ctrl[1].slider("Min. minutes played", 0, int(df["minutes"].max()), 60, step=30)
     top_n = ctrl[2].slider("How many to show", 5, 25, 10)
     diff_own = ctrl[3].slider("Differential max ownership %", 1.0, 25.0, 10.0, step=0.5)
 
     start_gw_p = meta["next_gameweek"]
+    horizon_p = max(1, min(horizon_p, 38 - start_gw_p + 1))
     rec = build_recommendations(df, fixtures, teams_raw, start_gw_p, horizon_p)
 
-    pos_filter = st.multiselect(
+    fp1, fp2 = st.columns([1, 1])
+    pos_filter = fp1.multiselect(
         "Positions", POSITION_ORDER,
         default=[p for p in POSITION_ORDER if p in rec["position"].unique()],
     )
+    team_filter = fp2.multiselect(
+        "Teams", sorted(rec["team"].unique()), default=[],
+        help="Empty = all teams",
+    )
     rec_pos = rec[rec["position"].isin(pos_filter)]
+    if team_filter:
+        rec_pos = rec_pos[rec_pos["team"].isin(team_filter)]
 
     caps = top_captains(rec_pos, n=top_n, min_minutes=min_mins)
     diffs = top_differentials(rec_pos, max_ownership=diff_own, n=top_n, min_minutes=min_mins)
@@ -352,6 +367,109 @@ with tab_picks:
         st.dataframe(diffs[diff_cols], use_container_width=True, hide_index=True, column_config=score_config)
     else:
         st.info("No differentials match the current filters — try raising the ownership cap.")
+
+# ============================================================================
+# TAB 4 — My Team (transfer suggestions)
+# ============================================================================
+with tab_myteam:
+    st.subheader("My Team — Transfer Suggestions")
+    st.caption(
+        "Enter your FPL team ID to pull your squad and get suggested single-transfer upgrades: "
+        "for each player, the best-scoring affordable replacement in the same position. "
+        "Find your ID in the FPL site URL: `.../entry/**1234567**/event/...`."
+    )
+
+    mc = st.columns([1.2, 1, 1, 1])
+    team_id_str = mc[0].text_input("FPL Team ID", placeholder="e.g. 1234567")
+    horizon_m = mc[1].slider("Fixture horizon (GWs)", 1, 19, 5, key="myteam_horizon")
+    min_mins_m = mc[2].slider("Min. minutes (targets)", 0, int(df["minutes"].max()), 60, step=30,
+                              key="myteam_minmins")
+    n_sug = mc[3].slider("Suggestions", 1, 10, 5, key="myteam_n")
+
+    if not team_id_str.strip():
+        st.info("Enter your team ID above to see your squad and transfer suggestions.")
+    elif not team_id_str.strip().isdigit():
+        st.error("Team ID must be a number (digits only).")
+    else:
+        team_id = int(team_id_str.strip())
+        try:
+            entry = fetch_entry(team_id, cfg=CFG)
+            picks_data = fetch_picks(team_id, meta["picks_gw"], cfg=CFG)
+        except Exception:
+            st.error(
+                f"Couldn't load team {team_id}. Check the ID is correct and public "
+                "(the FPL API only serves teams that have set a squad)."
+            )
+        else:
+            bank = picks_data["entry_history"]["bank"] / 10.0
+            value = picks_data["entry_history"]["value"] / 10.0
+            start_m = max(1, min(horizon_m, 38 - meta["next_gameweek"] + 1))
+            rec_m = build_recommendations(df, fixtures, teams_raw, meta["next_gameweek"], start_m)
+            squad = build_squad(rec_m, picks_data["picks"])
+
+            h1, h2, h3, h4 = st.columns(4)
+            h1.metric("Team", entry.get("name", "—"))
+            h2.metric("Overall points", entry.get("summary_overall_points", "—"))
+            rank = entry.get("summary_overall_rank")
+            h3.metric("Overall rank", f"{rank:,}" if rank else "—")
+            h4.metric("In the bank", f"£{bank:.1f}m", f"squad £{value:.1f}m")
+
+            # Best captain within the owned squad.
+            starters = squad[~squad["on_bench"]]
+            if len(starters):
+                cap = starters.sort_values("captain_score", ascending=False).iloc[0]
+                st.markdown(
+                    f"**⭐ Suggested captain (from your squad):** {cap['player']} "
+                    f"({cap['team']}) — next {cap['next_opp']}, form {cap['form']:.1f}"
+                )
+
+            st.markdown("#### 🔁 Suggested transfers")
+            sug = suggest_transfers(rec_m, squad, bank, n=n_sug, min_minutes=min_mins_m)
+            if len(sug):
+                st.caption(
+                    "Ranked by projected score gain. Each swap is costed on its own against your "
+                    "bank + the sold player's price — combining several may exceed your budget. "
+                    "Selling price is approximated by current price (the API doesn't expose it)."
+                )
+                st.dataframe(
+                    sug, use_container_width=True, hide_index=True,
+                    column_config={
+                        "out": st.column_config.TextColumn("OUT"),
+                        "out_team": "Team", "position": "Pos",
+                        "out_score": st.column_config.NumberColumn("Score", format="%.1f"),
+                        "in": st.column_config.TextColumn("IN"),
+                        "in_team": "Team", "in_next": "IN next",
+                        "in_score": st.column_config.NumberColumn("Score", format="%.1f"),
+                        "improvement": st.column_config.NumberColumn("Gain", format="+%.1f"),
+                        "cost": st.column_config.NumberColumn("Cost", format="£%+.1fm"),
+                    },
+                )
+            else:
+                st.success("No clear upgrades found within budget — your squad looks well set!")
+
+            st.markdown("#### Your current squad")
+            squad_view = squad.assign(
+                role=squad.apply(
+                    lambda r: ("(C)" if r["is_captain"] else "(V)" if r["is_vice"] else "")
+                    + (" 🪑" if r["on_bench"] else ""),
+                    axis=1,
+                )
+            )
+            st.dataframe(
+                squad_view[["player", "team", "position", "role", "price", "next_opp",
+                            "next_fdr", "form", "expected_goal_involvements",
+                            "selected_by_percent", "differential_score"]],
+                use_container_width=True, hide_index=True,
+                column_config={
+                    "player": "Player", "team": "Team", "position": "Pos", "role": "",
+                    "price": st.column_config.NumberColumn("Price", format="£%.1fm"),
+                    "next_opp": "Next", "next_fdr": st.column_config.NumberColumn("FDR", format="%.0f"),
+                    "form": st.column_config.NumberColumn("Form", format="%.1f"),
+                    "expected_goal_involvements": st.column_config.NumberColumn("xGI", format="%.2f"),
+                    "selected_by_percent": st.column_config.NumberColumn("Owned", format="%.1f%%"),
+                    "differential_score": st.column_config.NumberColumn("Score", format="%.1f"),
+                },
+            )
 
 st.caption(
     "Data: official Fantasy Premier League API (fantasy.premierleague.com). "

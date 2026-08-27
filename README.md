@@ -30,7 +30,14 @@ you make informed FPL transfer, captaincy and differential decisions.
   blends form, points-per-game and xGI, weighted by the next fixture's ease.
 - **Differentials**: in-form, low-owned players (adjustable ownership cap) with a good fixture
   *run* — weighted by average difficulty over the horizon.
-- Controls for horizon, minimum minutes, count, ownership cap, and positions.
+- Controls for horizon, minimum minutes, count, ownership cap, positions, and teams.
+
+### 🔁 My Team
+- Enter your **FPL team ID** to pull your live squad, points, rank, bank and team value.
+- **Suggested transfers**: for each player, the best-scoring affordable replacement in the same
+  position, ranked by projected gain (distinct OUT/IN players, costed against bank + selling price).
+- A suggested captain drawn from your own squad, plus your full squad with fixtures and scores.
+- Note: the public API doesn't expose selling price, so it's approximated by current price.
 
 ### General
 - **🔄 Refresh** button + a disk cache so stats stay current without hammering the API.
@@ -75,6 +82,7 @@ src/transform.py         # tidy players DataFrame + derived metrics
 src/news_feed.py         # RSS rumour fetch + surname matching
 src/fixtures.py          # fixture-difficulty ticker
 src/insights.py          # captain & differential scoring
+src/myteam.py            # squad mapping + transfer suggestions
 tests/                   # unit tests (no network)
 cache/                   # cached API JSON
 config.yaml              # settings (API, cache, news feeds)
@@ -82,5 +90,6 @@ config.yaml              # settings (API, cache, news feeds)
 
 ## Roadmap (next versions)
 
-- "My team" analysis via FPL team ID.
-- Per-player gameweek history & trends.
+- Per-player gameweek history & trends (sparklines).
+- Multi-transfer planning within a combined budget.
+- Chip strategy hints (Wildcard / Bench Boost / Triple Captain).

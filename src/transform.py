@@ -34,8 +34,10 @@ _STRING_FLOAT_FIELDS = [
     "ict_index",
 ]
 
-# Stable, display-ordered column set.
+# Stable, display-ordered column set. ``id`` is the FPL element id, kept for mapping a
+# manager's picks back to players; it is hidden from the on-screen tables.
 DISPLAY_COLUMNS = [
+    "id",
     "player",
     "team",
     "position",

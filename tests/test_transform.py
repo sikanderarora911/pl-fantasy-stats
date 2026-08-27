@@ -22,6 +22,7 @@ def _fixture() -> dict:
         ],
         "elements": [
             {
+                "id": 1,
                 "web_name": "Raya", "team": 1, "element_type": 1, "now_cost": 60,
                 "total_points": 30, "form": "6.0", "points_per_game": "5.0",
                 "selected_by_percent": "38.2", "minutes": 900, "goals_scored": 0,
@@ -32,6 +33,7 @@ def _fixture() -> dict:
                 "cost_change_start": 2, "transfers_in_event": 200000, "transfers_out_event": 20000,
             },
             {
+                "id": 2,
                 "web_name": "Palmer", "team": 2, "element_type": 3, "now_cost": 105,
                 "total_points": 42, "form": "7.5", "points_per_game": "7.0",
                 "selected_by_percent": "55.1", "minutes": 810, "goals_scored": 5,

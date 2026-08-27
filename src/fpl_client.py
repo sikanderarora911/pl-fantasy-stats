@@ -101,6 +101,28 @@ def fetch_fixtures(force_refresh: bool = False, cfg: dict[str, Any] | None = Non
         raise
 
 
+def fetch_entry(team_id: int, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return a manager's team summary (name, points, rank, bank, value). Not cached to disk."""
+    cfg = cfg or load_config()
+    api = cfg["api"]
+    url = f"{api['base_url'].rstrip('/')}/entry/{int(team_id)}/"
+    resp = requests.get(url, headers={"User-Agent": api["user_agent"]},
+                        timeout=api.get("timeout_seconds", 20))
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_picks(team_id: int, gameweek: int, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return a manager's 15 picks for a gameweek, plus that gameweek's bank/value."""
+    cfg = cfg or load_config()
+    api = cfg["api"]
+    url = f"{api['base_url'].rstrip('/')}/entry/{int(team_id)}/event/{int(gameweek)}/picks/"
+    resp = requests.get(url, headers={"User-Agent": api["user_agent"]},
+                        timeout=api.get("timeout_seconds", 20))
+    resp.raise_for_status()
+    return resp.json()
+
+
 def cache_mtime(cfg: dict[str, Any] | None = None) -> float | None:
     """Epoch mtime of the bootstrap cache file, or ``None`` if it does not exist."""
     cfg = cfg or load_config()
