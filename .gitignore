@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Cached FPL/RSS API responses (regenerated at runtime)
+cache/*.json
+
+# OS
+.DS_Store

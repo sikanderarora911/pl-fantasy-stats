@@ -1,0 +1,8 @@
+# Streamlit server config for deployment.
+[server]
+headless = true
+address = "0.0.0.0"
+# Most hosts inject the port via $PORT; Streamlit also accepts --server.port at launch.
+
+[browser]
+gatherUsageStats = false

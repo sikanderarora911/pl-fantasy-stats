@@ -1,0 +1,23 @@
+# PL Fantasy Stats configuration
+api:
+  base_url: "https://fantasy.premierleague.com/api"
+  # A browser-like User-Agent is required; the FPL API 403s some default agents.
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+  timeout_seconds: 20
+
+cache:
+  dir: "cache"
+  # Reuse cached API JSON if younger than this many minutes before hitting the network.
+  ttl_minutes: 60
+
+news:
+  # Free, legitimate RSS feeds for Premier League transfer/team-news rumours.
+  # Player surnames in headlines are matched against the FPL player list.
+  feeds:
+    - name: "BBC Sport — Premier League"
+      url: "https://feeds.bbci.co.uk/sport/football/premier-league/rss.xml"
+    - name: "Sky Sports — Football"
+      url: "https://www.skysports.com/rss/12040"
+  ttl_minutes: 30          # feeds are cached this long
+  max_items_per_player: 3  # cap headlines shown per player
+  min_token_len: 4         # ignore short surname tokens to reduce false matches
