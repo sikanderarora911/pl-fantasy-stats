@@ -97,8 +97,11 @@ def attach_rumours(
 ) -> pd.DataFrame:
     """Add ``rumours`` (joined headlines) and ``rumour_count`` columns to the players DataFrame.
 
-    A player matches an item when any of their name tokens appears as a whole word in the
-    item's title or summary.
+    A player matches an item when any of their name tokens appears as a whole word in the item's
+    **title** only. Summaries are deliberately excluded: articles routinely mention many players
+    in passing (e.g. a Barcola transfer story listing Liverpool's other forwards), which produced
+    false positives like Gakpo being tagged to a Barcola headline. Requiring the name in the
+    headline keeps rumours about players the article is actually about.
     """
     cfg = cfg or load_config()
     news_cfg = cfg.get("news", {})
@@ -106,8 +109,8 @@ def attach_rumours(
     cap = int(news_cfg.get("max_items_per_player", 3))
 
     df = df.copy()
-    # Pre-normalize item text once.
-    norm_items = [(_normalize(f"{it['title']} {it['summary']}"), it) for it in items]
+    # Pre-normalize the headline text once (title only — see docstring).
+    norm_items = [(_normalize(it["title"]), it) for it in items]
 
     rumours: list[str] = []
     counts: list[int] = []

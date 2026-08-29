@@ -49,6 +49,19 @@ def test_attach_rumours_matches_surnames():
     assert out.loc["Haaland", "rumours"] == ""
 
 
+def test_summary_mention_does_not_match():
+    # Regression: a player named only in the SUMMARY (not the headline) must not match, so a
+    # Barcola transfer story that lists Gakpo as squad competition isn't tagged to Gakpo.
+    items = [
+        {"title": "Liverpool agree £123m deal for PSG's Barcola",
+         "summary": "New signing adds to competition alongside Gakpo and Diaz."},
+    ]
+    df = pd.DataFrame({"player": ["Gakpo", "Barcola"]})
+    out = attach_rumours(df, items, cfg=CFG).set_index("player")
+    assert out.loc["Gakpo", "rumour_count"] == 0     # only in summary -> no match
+    assert out.loc["Barcola", "rumour_count"] == 1   # in headline -> matches
+
+
 def test_rumours_respect_cap():
     df = pd.DataFrame({"player": ["Smith"]})
     items = [{"title": f"Smith story {i}", "summary": ""} for i in range(10)]
